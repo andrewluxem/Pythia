@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔮 PYTHIA
+# PYTHIA
 
 ### Watch the world. Predict what happens next.
 
