@@ -1,81 +1,110 @@
 'use client';
 
-/** PYTHIA loading screen — a school of fish circling the eye (a nod to MiroFish). */
+/** Opening screen — glowing veins erupt from the center and branch outward,
+ *  consuming the screen, while PYTHIA resolves in the middle (Doto, regular). */
+import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 
-type F = { r: number; dur: number; rev?: boolean; size: number; delay: number; color: string };
-
-// radius, orbit duration (s), size, start delay, color — varied for a living school
-const FISH: F[] = [
-  { r: 86, dur: 8, size: 26, delay: 0, color: 'var(--cyan-primary)' },
-  { r: 118, dur: 13, size: 20, delay: 1.2, color: 'var(--gold-primary)', rev: true },
-  { r: 150, dur: 17, size: 30, delay: 0.4, color: 'var(--gold-light)' },
-  { r: 104, dur: 10, size: 18, delay: 2.1, color: 'var(--cyan-primary)', rev: true },
-  { r: 176, dur: 21, size: 22, delay: 0.8, color: 'var(--cyan-primary)' },
-  { r: 202, dur: 27, size: 16, delay: 1.6, color: 'var(--gold-primary)', rev: true },
-  { r: 134, dur: 15, size: 24, delay: 3.0, color: 'var(--gold-light)' },
-  { r: 160, dur: 19, size: 18, delay: 4.2, color: 'var(--cyan-primary)', rev: true },
-];
-
-function Fish({ size, color }: { size: number; color: string }) {
-  // a fish facing +x; placed at the top of a rotating arm so it always swims tangentially
-  return (
-    <svg width={size} height={size * 0.56} viewBox="0 0 44 22" style={{ overflow: 'visible', filter: `drop-shadow(0 0 5px ${color})` }}>
-      <g className="pythia-fish-bob" style={{ transformOrigin: 'center' }}>
-        <path d="M2 11 L14 3 L14 19 Z" fill={color} opacity="0.85" />
-        <ellipse cx="26" cy="11" rx="14" ry="7.5" fill={color} />
-        <circle cx="33" cy="9" r="1.5" fill="#070611" />
-      </g>
-    </svg>
-  );
-}
-
 export default function SplashScreen() {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = (canvas.width = Math.floor(window.innerWidth * dpr));
+    const H = (canvas.height = Math.floor(window.innerHeight * dpr));
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    const cx = W / 2, cy = H / 2;
+    const maxR = Math.hypot(cx, cy);
+
+    // violet core -> cyan tips, by distance from center
+    const A = [154, 123, 255], B = [45, 245, 200];
+    const col = (t: number, a: number) =>
+      `rgba(${Math.round(A[0] + (B[0] - A[0]) * t)},${Math.round(A[1] + (B[1] - A[1]) * t)},${Math.round(A[2] + (B[2] - A[2]) * t)},${a})`;
+
+    type Tip = { x: number; y: number; px: number; py: number; ang: number; w: number; gen: number; life: number; speed: number };
+    const tips: Tip[] = [];
+    const spawn = (x: number, y: number, ang: number, w: number, gen: number) => {
+      if (tips.length > 420) return;
+      tips.push({ x, y, px: x, py: y, ang, w, gen, life: 70 + Math.random() * 90, speed: (2.7 + Math.random() * 1.9) * dpr });
+    };
+    const TRUNKS = 7;
+    for (let i = 0; i < TRUNKS; i++) spawn(cx, cy, (i / TRUNKS) * Math.PI * 2 + Math.random() * 0.5, 3.4 * dpr, 0);
+
+    ctx.fillStyle = '#08060F';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+
+    let raf = 0, frame = 0;
+    const step = () => {
+      frame++;
+      for (let i = tips.length - 1; i >= 0; i--) {
+        const t = tips[i];
+        t.px = t.x; t.py = t.y;
+        t.ang += (Math.random() - 0.5) * 0.55;                 // meander
+        t.x += Math.cos(t.ang) * t.speed;
+        t.y += Math.sin(t.ang) * t.speed;
+        const tc = Math.min(1, Math.hypot(t.x - cx, t.y - cy) / maxR);
+
+        ctx.beginPath();
+        ctx.moveTo(t.px, t.py);
+        ctx.lineTo(t.x, t.y);
+        ctx.strokeStyle = col(tc, 0.55);
+        ctx.lineWidth = Math.max(0.4, t.w);
+        ctx.shadowBlur = 6 * dpr;
+        ctx.shadowColor = col(tc, 0.7);
+        ctx.stroke();
+
+        t.w *= 0.991;                                          // taper toward capillaries
+        t.life--;
+
+        if (t.gen < 6 && Math.random() < 0.062 && t.w > 0.9 * dpr) {  // branch
+          const off = (0.4 + Math.random() * 0.6) * (Math.random() < 0.5 ? 1 : -1);
+          spawn(t.x, t.y, t.ang + off, t.w * 0.72, t.gen + 1);
+          ctx.beginPath();
+          ctx.arc(t.x, t.y, t.w * 0.8, 0, Math.PI * 2);
+          ctx.fillStyle = col(tc, 0.5);
+          ctx.fill();
+        }
+        if (t.life <= 0 || t.w < 0.4 * dpr || t.x < -30 || t.x > W + 30 || t.y < -30 || t.y > H + 30) tips.splice(i, 1);
+      }
+      ctx.shadowBlur = 0;
+      if (tips.length > 0 && frame < 460) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.7 } }}
-      transition={{ duration: 0.5 }}
-      className="fixed inset-0 z-[9999] flex flex-col items-center justify-center overflow-hidden"
-      style={{ background: 'radial-gradient(circle at 50% 44%, #120c26 0%, #070611 72%)' }}
+      initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.6 }}
+      className="fixed inset-0 z-[9999] overflow-hidden"
+      style={{ background: '#08060F' }}
     >
-      <div className="relative flex items-center justify-center" style={{ width: 460, height: 460 }}>
-        {/* faint orbit rings */}
-        {[118, 176, 202].map((r) => (
-          <div key={r} className="absolute rounded-full border" style={{ width: r * 2, height: r * 2, borderColor: 'rgba(154,123,255,0.06)' }} />
-        ))}
-        {/* circling fish */}
-        {FISH.map((f, i) => (
-          <div key={i} className="absolute" style={{ animation: `pythia-orbit ${f.dur}s linear infinite ${f.rev ? 'reverse' : 'normal'}`, animationDelay: `-${f.delay}s` }}>
-            <div style={{ transform: `translateY(-${f.r}px)` }}>
-              <Fish size={f.size} color={f.color} />
-            </div>
-          </div>
-        ))}
-        {/* the eye */}
-        <motion.img
-          src="/pythia-logo.png"
-          alt=""
-          width={124}
-          height={124}
-          initial={{ scale: 0.82, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
-          className="pythia-eye-pulse"
-          style={{ borderRadius: 18 }}
-          draggable={false}
-        />
+      <canvas ref={ref} className="absolute inset-0" />
+      {/* keep the center readable as the veins erupt from behind the word */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: 'radial-gradient(ellipse 52% 27% at center, rgba(8,6,15,0.97) 0%, rgba(8,6,15,0.92) 44%, rgba(8,6,15,0.55) 68%, transparent 100%)' }} />
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <motion.h1
+          initial={{ opacity: 0, letterSpacing: '0.62em' }}
+          animate={{ opacity: 1, letterSpacing: '0.3em' }}
+          transition={{ duration: 1.3, delay: 0.35, ease: [0.16, 1, 0.3, 1] }}
+          style={{
+            fontFamily: 'var(--font-doto)', fontWeight: 400,
+            fontSize: 'clamp(40px, 12vw, 120px)', paddingLeft: '0.3em',
+            color: 'var(--gold-primary)', textShadow: '0 0 32px rgba(154,123,255,0.55)',
+          }}
+        >
+          PYTHIA
+        </motion.h1>
       </div>
-
-      <motion.h1
-        initial={{ opacity: 0, y: 10, filter: 'blur(6px)' }}
-        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-        transition={{ delay: 0.5, duration: 0.7 }}
-        className="pythia-wordmark text-3xl md:text-4xl font-bold tracking-[0.45em] mt-1"
-      >
-        PYTHIA
-      </motion.h1>
     </motion.div>
   );
 }
