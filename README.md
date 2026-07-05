@@ -168,6 +168,8 @@ The whole Agent API is also exposed as an **MCP server** (stdio), so Claude Code
 Desktop, or any MCP client gets PYTHIA as native tools — `world_brief`, `get_events`,
 `get_predictions`, `predict_now`, `ask_oracle`, `what_if`, `get_scorecard`:
 
+https://github.com/jangles-byte/Pythia/raw/main/screenshots/mcp-demo.mp4
+
 ```bash
 # Claude Code (engine must be running):
 claude mcp add pythia -- uv --directory /path/to/Pythia run python -m engine.mcp
