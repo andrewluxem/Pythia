@@ -80,6 +80,17 @@ class Config:
 
     # ── Swarm (a council of LLM personas deliberates each forecast) ──
     swarm_enabled: bool = field(default_factory=lambda: _b("SWARM_ENABLED", True))
+    # per-persona model seeds, e.g. SWARM_MODELS=Strategist=llama3.1:70b,Skeptic=qwen3:8b
+    # (UI picks are saved to runs/swarm_models.json and win over these)
+    swarm_models: dict = field(default_factory=lambda: {
+        k.strip(): v.strip()
+        for pair in os.environ.get("SWARM_MODELS", "").split(",") if "=" in pair
+        for k, v in [pair.split("=", 1)] if k.strip() and v.strip()
+    })
+
+    # ── Track record (persist forecasts, judge them when the horizon expires) ──
+    track_enabled: bool = field(default_factory=lambda: _b("TRACK_RECORD_ENABLED", True))
+    resolve_interval_sec: int = field(default_factory=lambda: _i("RESOLVE_INTERVAL_SEC", 3600))
 
     def summary(self) -> dict:
         return {

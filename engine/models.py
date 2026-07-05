@@ -46,6 +46,7 @@ class AgentView(BaseModel):
     name: str                           # Strategist | Economist | Naturalist | Skeptic
     probability: float                  # 0..1, this agent's estimate
     note: str = ""                      # terse rationale from its lens
+    model: str = ""                     # which local model cast this vote
 
 
 class Prediction(BaseModel):

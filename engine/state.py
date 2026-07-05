@@ -15,13 +15,34 @@ class EngineState:
         self.predictions: list[Prediction] = []     # current forecast set
         self.world: Optional[WorldBrief] = None
         self.events: list = []                       # latest raw WorldEvents (for agents)
-        self.swarm_models: dict[str, str] = {}       # persona name -> model override (empty = use main)
+        # persona name -> model override (empty = use main model).
+        # Seeded from SWARM_MODELS in .env, then saved UI picks win; persisted across restarts.
+        self.swarm_models: dict[str, str] = dict(CONFIG.swarm_models)
+        self.swarm_models.update(self._load_swarm_models())
         self.runs: "OrderedDict[str, RunRecord]" = OrderedDict()
         self.generating: bool = False
         self.loop_enabled: bool = False
         self.last_run_ms: Optional[int] = None
         self.started_ms: int = now_ms()
         self._subs: set[asyncio.Queue] = set()
+
+    # ── swarm model persistence ──
+    @staticmethod
+    def _swarm_models_path():
+        return CONFIG.runs_dir / "swarm_models.json"
+
+    def _load_swarm_models(self) -> dict[str, str]:
+        try:
+            data = json.loads(self._swarm_models_path().read_text())
+            return {str(k): str(v) for k, v in data.items() if v} if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def save_swarm_models(self) -> None:
+        try:
+            self._swarm_models_path().write_text(json.dumps(self.swarm_models, indent=1))
+        except OSError:
+            pass   # persistence is best-effort; the in-memory picks still apply
 
     # ── pub/sub ──
     def subscribe(self) -> asyncio.Queue:

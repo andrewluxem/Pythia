@@ -48,15 +48,7 @@ def _persona_messages(name: str, lens: str, brief_text: str, preds: list[Predict
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-async def _ask(oracle, name: str, lens: str, brief_text: str,
-               preds: list[Prediction]) -> tuple[str, dict[int, tuple[float, str]]]:
-    """Run one persona; return its {prediction_index: (probability, note)} map."""
-    persona_model = STATE.swarm_models.get(name) or None    # per-persona override (else main model)
-    try:
-        text = await oracle._complete(_persona_messages(name, lens, brief_text, preds), max_tokens=1300, model=persona_model)
-    except Exception as e:  # noqa: BLE001
-        log.warning("swarm persona %s failed: %s", name, e)
-        return name, {}
+def _parse_scored(oracle, text: str, n_preds: int) -> dict[int, tuple[float, str]]:
     scored: dict[int, tuple[float, str]] = {}
     for chunk in oracle._extract_objects(text):
         try:
@@ -70,11 +62,34 @@ async def _ask(oracle, name: str, lens: str, brief_text: str,
             p = float(o.get("p", 50))
         except (TypeError, ValueError):
             continue
-        if not 0 <= i < len(preds):
+        if not 0 <= i < n_preds:
             continue
         p = max(0.0, min(1.0, p / 100.0 if p > 1 else p))
         scored[i] = (round(p, 2), str(o.get("note", "")).strip()[:320])
-    return name, scored
+    return scored
+
+
+async def _ask(oracle, name: str, lens: str, brief_text: str,
+               preds: list[Prediction]) -> tuple[str, str, dict[int, tuple[float, str]]]:
+    """Run one persona; return (name, model used, {prediction_index: (probability, note)})."""
+    persona_model = STATE.swarm_models.get(name) or None    # per-persona override (else main model)
+    used_model = persona_model or oracle.model
+    # Small models can run out of context on the full brief and emit a truncated
+    # (unparseable) reply — so if a pass yields zero votes, retry once compacted.
+    for brief_cap in (2600, 1100):
+        try:
+            text = await oracle._complete(_persona_messages(name, lens, brief_text[:brief_cap], preds),
+                                          max_tokens=1300, model=persona_model)
+        except Exception as e:  # noqa: BLE001
+            log.warning("swarm persona %s (%s) failed: %s", name, used_model, e)
+            return name, used_model, {}
+        scored = _parse_scored(oracle, text, len(preds))
+        if scored:
+            return name, used_model, scored
+        log.warning("swarm persona %s (%s): no votes parsed from %d chars (%r) — %s",
+                    name, used_model, len(text), text[:80],
+                    "retrying with a compacted brief" if brief_cap == 2600 else "giving up this pass")
+    return name, used_model, {}
 
 
 async def deliberate(oracle, brief: WorldBrief | None, predictions: list[Prediction],
@@ -91,8 +106,8 @@ async def deliberate(oracle, brief: WorldBrief | None, predictions: list[Predict
 
     enriched = 0
     for idx, pred in enumerate(subset):
-        views = [AgentView(name=name, probability=scored[idx][0], note=scored[idx][1])
-                 for name, scored in results if idx in scored]
+        views = [AgentView(name=name, probability=scored[idx][0], note=scored[idx][1], model=used)
+                 for name, used, scored in results if idx in scored]
         if not views:
             continue
         pred.agents = views
